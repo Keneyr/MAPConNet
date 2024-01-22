@@ -3,7 +3,23 @@ import torch.nn.functional as F
 import models.networks as networks
 import util.util as util
 
+"""
+@keneyr: the core novel idea in this paper: disentanglement of pose and identity
+1. Mesh Contrastive Learning
+- Mesh loss CC, Mesh loss SS
+2. Point Contrastive Learning
+- Point loss
 
+Framework From 3D-CoreNet:
+1. correspondence 
+2. refinement
+- reconstruction loss, edge loss
+
+followed by [47]:
+1. cross-consistency, CC
+2. self-consistency, SC
+- CC loss, SC loss
+"""
 class Ver2VerModel(torch.nn.Module):
     @staticmethod
     def modify_commandline_options(parser, is_train):
@@ -32,12 +48,12 @@ class Ver2VerModel(torch.nn.Module):
             if len(self.opt.gpu_ids) >= 1:
                 identity_points=identity_points.cuda()
                 pose_points=pose_points.cuda()
-
+            # unsupervised learning
             if self.opt.use_unlabelled:
                 pose_points2=pose_points2.transpose(2,1)
                 if len(self.opt.gpu_ids) >= 1:
                     pose_points2=pose_points2.cuda()
-
+            # supervised learning
             if self.iter_is_labelled:
                 gt_points=gt_points.transpose(2,1)
                 if len(self.opt.gpu_ids) >= 1:
@@ -178,6 +194,9 @@ class Ver2VerModel(torch.nn.Module):
 
         return losses, generate_out
 
+    """
+    @keneyr: pipeline, based on 3D-CoreNet: correspondence and refinement
+    """
     def generate_fake(self, identity_points, pose_points, detach=False,
                       return_Tm=False, return_features=False, id_features=None, pose_features=None):
         generate_out = {}
@@ -228,7 +247,8 @@ class Ver2VerModel(torch.nn.Module):
 
     def get_output_features(self, generated_out):
         generated_out['out_features'] = self.net['netCorr'](generated_out['warp_out'].transpose(2, 1), None, encode=True)
-
+    
+    # mesh loss
     def mesh_loss(self, generated_out, reorder, sc=False):
         pose_feat = generated_out['pose_features']
         id_feat = generated_out['id_features']
@@ -246,7 +266,7 @@ class Ver2VerModel(torch.nn.Module):
             mesh_loss_pose = self.triplet_loss(pose_feat[:, id_dim:, :], out_feat[:, id_dim:, :], id_feat[:, id_dim:, :], meshwise=True, margin=self.opt.margin_mesh)
         loss['mesh_loss'] = (mesh_loss_id + mesh_loss_pose) * self.opt.lambda_mesh
         return loss
-
+    # point loss
     def point_loss(self, generated_out):
         a = generated_out['out_features']
         p = generated_out['id_features']
